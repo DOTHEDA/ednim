@@ -43,7 +43,7 @@ proc getEdnums(file: seq[char], areTextures: bool, search: string = ""): string 
     var i = 0
 
     var outString: string
-    
+
     for m in file.getTextmaps(file.getLumps()):
 
         let textMapList = m.parseTextmaps(areTextures)
@@ -73,7 +73,7 @@ proc getEdnums(file: seq[char], areTextures: bool, search: string = ""): string 
 
                     i.inc()
                 else:
-                    if $(t.Textmap.texture) == search:
+                    if $(t.Textmap.texture).toLower() == search.toLower():
                         outString.add(t.Textmap.texture)
                         outString.add("\n")
 
@@ -121,7 +121,7 @@ for kind, key, value in getOpt():
                     else:
                         echo getEdnums(wad, switchT)
                 else:
-                    echo "no textures found in this map (invalid wad/program error?)"
+                    echo "no textures found in this map (invalid wad/not UDMF?)"
         else:
             echo "file does not exist or is invalid"
 
@@ -135,6 +135,22 @@ for kind, key, value in getOpt():
             if value.len() > 0: switchS = value
         of "t":
             switchT = true
+        of "h":
+            echo """syntax: [options] [wad file]
+
+-e : lists things
+
+-t : lists textures
+
+-s="name/id" : searches for a specific thing/texture
+make sure there are NO SPACES between the = and the option/string
+
+
+thing search example:
+ednim -s=321 -e WADNAME.wad
+
+texture search example (case insensitive):
+ednim -s="startan2" -t WADNAME.wad"""
         else:
             echo "incorrect switch"
     of cmdEnd:
