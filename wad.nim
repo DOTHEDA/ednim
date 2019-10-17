@@ -18,10 +18,14 @@ type
     THINGS = object
         ednum: uint32
 
-type
     SECTORS = object
-        ceilingFlat: string
-        floorFlat: string
+        flatCeiling: string
+        flatFloor: string
+
+    SIDEDEFS = object
+        textureUpper: string
+        textureMiddle: string
+        textureLower: string
 
 
 #gets the WAD header so it can be checked as a valid WAD
@@ -49,7 +53,6 @@ proc getLumps(wad: seq[char]): seq[Lump] =
         lumps[i].offset = wad[i * 16 + t ..< i * 16 + t + 4].getInt()
         lumps[i].size = wad[i * 16 + t + 4 ..< i * 16 + t + 8].getInt() 
 
-    
     result = lumps
 
 proc checkIfMap(lump: Lump): bool =
@@ -105,4 +108,72 @@ proc getThingsFromMap(  wad: seq[char],
         lumps[i].name.toUpper() == "BLOCKMAP":
             isMap = false
             lastMap = ""
+    result = outSeq
+
+proc getTexturesFromMap(  wad: seq[char],
+                        lumps: seq[Lump],
+                        lumpToGet: string): seq[(string,
+                                            seq[SECTORS],
+                                            seq[SIDEDEFS])] =
+    var outSeq: seq[(string, seq[SECTORS], seq[SIDEDEFS])]
+    var isMap: bool
+    var lastMap: string = ""
+    
+    for i in 0 ..< lumps.len():
+        var flats: seq[SECTORS]
+        var textures: seq[SIDEDEFS]
+        if checkIfMap(lumps[i]):
+            isMap = true
+            lastMap = lumps[i].name
+        
+        if isMap and
+        lumpToGet == "TEXTURES" and
+        lumps[i].name.toUpper() == "SECTORS":
+            var lumpSectors: SECTORS
+            let lumpSize: uint32 = 26
+
+            for j in 0 ..< lumps[i].size div lumpSize:
+                let off = lumps[i].offset
+                var floorTexture: string
+                var ceilingTexture: string
+                
+                for c in wad[j * lumpSize + off + 4 ..< j * lumpSize + off + 12]:
+                    if c != '\x00': floorTexture.add(c)
+                for c in wad[j * lumpSize + off + 12 ..< j * lumpSize + off + 20]:
+                    if c != '\x00': ceilingTexture.add(c)
+
+                flats.add(SECTORS(flatFloor: floorTexture, flatCeiling: ceilingTexture))
+                
+            outSeq.add((lastMap, flats.deDuplicate(), textures.deDuplicate()))
+
+        if isMap and
+        lumpToGet == "TEXTURES" and
+        lumps[i].name.toUpper() == "SIDEDEFS":
+
+            var lumpSidedefs: SIDEDEFS
+            let lumpSize: uint32 = 30
+
+            for j in 0 ..< lumps[i].size div lumpSize:
+                let off = lumps[i].offset
+                var upperTexture: string
+                var middleTexture: string
+                var lowerTexture: string
+                
+                for c in wad[j * lumpSize + off + 4 ..< j * lumpSize + off + 12]:
+                    if c != '\x00': upperTexture.add(c)
+                for c in wad[j * lumpSize + off + 12 ..< j * lumpSize + off + 20]:
+                    if c != '\x00': lowerTexture.add(c)
+                for c in wad[j * lumpSize + off + 20 ..< j * lumpSize + off + 28]:
+                    if c != '\x00': middleTexture.add(c)
+
+                textures.add(SIDEDEFS(textureUpper: upperTexture, textureLower: lowerTexture, textureMiddle: middleTexture))
+    
+    
+            outSeq.add((lastMap, flats.deDuplicate(), textures.deDuplicate()))
+        if isMap and
+        lumps[i].name.toUpper() == "BLOCKMAP":
+            
+            isMap = false
+            lastMap = ""
+        
     result = outSeq

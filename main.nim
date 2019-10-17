@@ -91,7 +91,66 @@ proc getEdnums(file: seq[char], areTextures: bool, search: string = ""): string 
                             outString.add("\n")
                 else:
                     outString.add("no ednums matching search found")
-    
+
+    else:
+        
+        if search == "":
+
+            var lastPrinted = ""
+            for m in file.getTexturesFromMap(file.getLumps(), "TEXTURES"):
+                let mapToPrint = "-- " & m[0] & " --\n"
+                
+                if lastPrinted != mapToPrint:
+                    outString.add("-- " & m[0] & " --\n")
+                lastPrinted = mapToPrint
+                for t in m[1]:
+                    outString.add(t.SECTORS.flatCeiling)
+                    outString.add("\n")
+                    outString.add(t.SECTORS.flatFloor)
+                    outString.add("\n")
+
+                for t in m[2]:
+                    outString.add(t.SIDEDEFS.textureUpper)
+                    outString.add("\n")
+                    outString.add(t.SIDEDEFS.textureMiddle)
+                    outString.add("\n")
+                    outString.add(t.SIDEDEFS.textureLower)
+                    outString.add("\n")
+                
+        else:
+            var lastPrinted = ""
+            for m in file.getTexturesFromMap(file.getLumps(), "TEXTURES"):
+                let mapToPrint = "-- " & m[0] & " --\n"
+                
+                if lastPrinted != mapToPrint:
+                    outString.add("-- " & m[0] & " --\n")
+                lastPrinted = mapToPrint
+
+
+                for t in m[1]:
+                    if t.SECTORS.flatCeiling.toLower() == search.toLower() or
+                    t.SECTORS.flatFloor.toLower() == search.toLower():
+                        outString.add(t.SECTORS.flatCeiling)
+                        outString.add("\n")
+                        outString.add(t.SECTORS.flatFloor)
+                        outString.add("\n")
+                
+
+                for t in m[2]:
+                    if t.SIDEDEFS.textureUpper.toLower() == search.toLower() or
+                    t.SIDEDEFS.textureMiddle.toLower() == search.toLower() or
+                    t.SIDEDEFS.textureLower.toLower() == search.toLower():
+                        outString.add(t.SIDEDEFS.textureUpper)
+                        outString.add("\n")
+                        outString.add(t.SIDEDEFS.textureMiddle)
+                        outString.add("\n")
+                        outString.add(t.SIDEDEFS.textureLower)
+                        outString.add("\n")
+                
+                outString.add("\n")
+                
+                
+
 
     
     result = outString
