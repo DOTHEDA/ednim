@@ -1,4 +1,5 @@
 import strutils
+import sequtils
 import macros
 
 type
@@ -12,6 +13,16 @@ type
         name: string
         offset: uint32
         size: uint32
+
+type
+    THINGS = object
+        ednum: uint32
+
+type
+    SECTORS = object
+        ceilingFlat: string
+        floorFlat: string
+
 
 #gets the WAD header so it can be checked as a valid WAD
 proc getID(wad: seq[char]): string =
@@ -54,3 +65,44 @@ proc checkIfMap(lump: Lump): bool =
         else:
             result = false
 
+proc getThingsFromMap(  wad: seq[char],
+                        lumps: seq[Lump],
+                        lumpToGet: string): seq[(string, seq[THINGS])] =
+    var outSeq: seq[(string, seq[THINGS])]
+    var isMap: bool
+    var lastMap: string = ""
+    for i in 0 ..< lumps.len():
+        if checkIfMap(lumps[i]):
+            isMap = true
+            lastMap = lumps[i].name
+        
+        if isMap and
+        lumpToGet == "THINGS" and
+        lumps[i].name.toUpper() == "THINGS":
+            var lumpEdnums: THINGS
+
+            #10 = doom, 20 = hexen
+            var thingMapType: uint8 = 0
+
+        
+            if lumps[i].size.mod(10'u8) == 0'u8:
+                thingMapType = 10
+            elif lumps[i].size.mod(20'u8) == 0'u8:
+                thingMapType = 20
+
+            var returnEdnums = newSeq[THINGS](cast[int](lumps[i].size div 10))
+            for j in 0 ..< lumps[i].size div thingMapType:
+                var getEdnum = newSeq[char](4)
+                
+
+                getEdnum[0 ..< 2] = wad[j * thingMapType + lumps[i].offset + 6 ..< j * thingMapType + lumps[i].offset + 8]
+                getEdnum[2 ..< 4] = ['\x00', '\x00']
+
+                returnEdnums[j] = THINGS(ednum: getEdnum.getInt())
+            outSeq.add((lastMap, returnEdnums.deDuplicate()))
+
+        if isMap and
+        lumps[i].name.toUpper() == "BLOCKMAP":
+            isMap = false
+            lastMap = ""
+    result = outSeq

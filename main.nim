@@ -40,7 +40,6 @@ proc readEntireFile(file: FileStream): seq[char] =
 
 proc getEdnums(file: seq[char], areTextures: bool, search: string = ""): string =
     var columns = 4
-    var i = 0
 
     var outString: string
 
@@ -54,30 +53,46 @@ proc getEdnums(file: seq[char], areTextures: bool, search: string = ""): string 
 
             if not areTextures:
                 if search == "":
-                    outString.add($(t.Thing.ttype))
+                    outString.add($(t.Thing.ednum))
                     outString.add("\n")
 
-                    i.inc()
                 else:
-                    if $(t.Thing.ttype) == search:
-                        outString.add($(t.Thing.ttype))
+                    if $(t.Thing.ednum) == search:
+                        outString.add($(t.Thing.ednum))
                         outString.add("\n")
 
-                        i.inc()
             
             else:
                 if search == "":
                     outString.add(t.Textmap.texture)
-
                     outString.add("\n")
 
-                    i.inc()
                 else:
-                    if $(t.Textmap.texture).toLower() == search.toLower():
+                    if (t.Textmap.texture).toLower() == search.toLower():
                         outString.add(t.Textmap.texture)
                         outString.add("\n")
 
-                        i.inc()
+    
+    if not areTextures:
+        
+        if search == "":
+            for m in file.getThingsFromMap(file.getLumps(), "THINGS"):
+                outString.add("-- " & m[0] & " --")
+                for t in m[1]:
+                    outString.add($(t.THINGS.ednum))
+                    outString.add("\n")
+        else:
+            for m in file.getThingsFromMap(file.getLumps(), "THINGS"):
+                outString.add("-- " & m[0] & " --\n")
+                if m[1].len() > 0:
+                    for t in m[1]:
+                        if $(t.THINGS.ednum) == search:
+                            outString.add($(t.THINGS.ednum))
+                            outString.add("\n")
+                else:
+                    outString.add("no ednums matching search found")
+    
+
     
     result = outString
 
@@ -121,7 +136,7 @@ for kind, key, value in getOpt():
                     else:
                         echo getEdnums(wad, switchT)
                 else:
-                    echo "no textures found in this map (invalid wad/not UDMF?)"
+                    echo "no textures found in this map (invalid wad?)"
         else:
             echo "file does not exist or is invalid"
 

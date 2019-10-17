@@ -12,7 +12,7 @@ type
         id: int32
         x: float32
         y: float32
-        ttype: int32
+        ednum: int32
         angle: int32
         dm: bool
         coop: bool
@@ -144,7 +144,7 @@ proc parseTextmaps(lump: TextmapLump, areTextures: bool = false): seq[Textmap] =
             for i, j in thingEdnums.deDuplicate():
                 new outThings[i]
 
-                outThings[i] = Thing(ttype: j)
+                outThings[i] = Thing(ednum: j)
 
         result = outThings
     else:
