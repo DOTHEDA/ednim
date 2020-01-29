@@ -1,158 +1,114 @@
-import strutils
-import sequtils
-import sets
+type 
+    UDMFVar = object
+        variable: string
+        value: string
 
 type
-    Textmap = ref object of RootObj
-        mapName: string
-        comment: string
-        texture: string
-
-    Thing = ref object of Textmap
-        id: int32
-        x: float32
-        y: float32
-        ednum: int32
-        angle: int32
-        dm: bool
-        coop: bool
-
-    Vertex = ref object of Textmap
-        x: float32
-        y: float32
-
-    Linedef = ref object of Textmap
-        v1: int32
-        v2: int32
-        front: int32
-        back: int32
-        twoSided: bool
-
-
-
-    Sidedef = ref object of Textmap
-        sector: int32
-        textureBottom: string
-        textureMiddle: string
-        textureTop: string
-        offsetX: int32
-        offsetY: int32
-
-    Sector = ref object of Textmap
-        textureFloor: string
-        textureCeiling: string
-        heightFloor: int32
-        heightCeiling: int32
-        lightLevel: int32
+    UDMFObj = object
+        name: string
+        values: seq[UDMFVar]
 
 type
-    TextmapLump = tuple
-        mapName: string
-        data: string
+    UDMFStuff = tuple
+        things: seq[Thing]
+        sidedefs: seq[Sidedef]
+        sectors: seq[Sector]
 
-proc getTextmaps(wad: seq[char], lumps: seq[Lump]): seq[TextmapLump] =
-    var textMaps: seq[TextmapLump]
-    for i in 0 ..< lumps.len():
-        if checkIfMap(lumps[i]):
-            if lumps[i+1].name.toUpper() == "TEXTMAP":
-                var outString: string
-                for c in wad[lumps[i+1].offset ..< lumps[i+1].size + lumps[i+1].offset]:
-                    outString.add(c)
-                textMaps.add((mapName: lumps[i].name, data: outString))
-
-    result = textMaps
-
-
-proc parseTextmaps(lump: TextmapLump, areTextures: bool = false): seq[Textmap] =
-
-    var thingCount: uint32 = 0
-    var thingEdnums: seq[int32]
-
-    var textureCount: uint32 = 0
-    var textures: seq[string]
-
-    var startDef: bool
-    var bracketNest: uint8 = 0
-    var nestedString: string
-    var varType: string
-
-    for i, c in lump.data:
-
-        if c == 't' and
-        lump.data.len() - i >= 8:
-
-            if startDef == false:
-                if lump.data[i ..< i+5] == "thing":
-                    startDef = true
-                    varType = "thing"
-
-        if c == 's' and
-        lump.data.len - i >= 8:
-            if startDef == false:
-                if lump.data[i ..< i+6] == "sector":
-                    startDef = true
-                    varType = "sector"
-                elif lump.data[i ..< i+7] == "sidedef":
-                    startDef = true
-                    varType = "sidedef"
-            
-        if c == '}' and startDef:
-            if not areTextures:
-                if varType == "thing" and
-                nestedString.len() > 0:
-                    for l in nestedString.split(';'):
-                        let variable = l.split('=')
-                        if variable[0].strip() == "type":
-                            thingEdnums.add(cast[int32](variable[1].strip().parseInt()))
-
-            else:
-                
-                if varType == "sidedef" and
-                nestedString.len() > 0:
-                    for l in nestedString.split(';'):
-                        let variable = l.split('=')
-                        case variable[0].strip()
-                        of "texturetop", "texturemiddle", "texturebottom":
-                            textures.add(variable[1].strip())
-
-                if varType == "sector" and
-                nestedString.len() > 0:
-                    for l in nestedString.split(';'):
-                        let variable = l.split('=')
-                        case variable[0].strip()
-                        of "texturefloor", "textureceiling":
-                            textures.add(variable[1].strip())
-
-
-            if bracketNest.pred() == 0'u8:
-                startDef = false
-            bracketNest.dec()
-
-            nestedString = ""
-            varType = ""
-
-        if startDef and bracketNest > 0'u8:
-            nestedString.add(c)
-            
-        if c == '{' and startDef:
-            bracketNest.inc()
-            
+proc parseUDMF(buffer: seq[byte], lump: Lump): UDMFStuff =
+    var variables: seq[UDMFObj]
+    var tmpVars: seq[UDMFVar]
     
-    if not areTextures:
-        var outThings = newSeq[Textmap](thingEdnums.deDuplicate().len())
-        if thingEdnums.len() > 0:
-            for i, j in thingEdnums.deDuplicate():
-                new outThings[i]
+    var isComment: uint8 = 0
+    var lastScopeName: string
+    var scopeString: string
+    var scope: uint32 = 0
+    for c in buffer[lump.off ..< lump.off + lump.size]:
+        let ch = cast[char](c)
 
-                outThings[i] = Thing(ednum: j)
+        # wtf?
+        # 0 is not a comment, 1 is a suspected comment,
+        # 2 is a comment, 3 is a suspected multiline comment,
+        # 4 is a multiline comment
+        if isComment == 2 and ch == '\n':
+            isComment = 0
+        elif isComment == 4 and ch == '/':
+            isComment = 0
+        elif isComment == 3 and ch == '*':
+            isComment = 4
+        elif isComment == 1 and ch != '/':
+            isComment = 0
+        elif isComment == 1 and ch == '/':
+            isComment = 2
+        elif isComment == 1 and ch == '*':
+            isComment = 3
+        elif isComment == 0 and ch == '/':
+            isComment = 1
+        
+        if not (isComment == 1 or isComment == 3) and
+        not (ch == '/' or ch == '*') and
+        not (isComment == 2 or isComment == 4):
+            if scope == 1 and ch != '}':
+                scopeString.add(ch)
+            if scope == 0 and
+            not (ch == ' ' or ch == '\t' or ch == '\n' or ch == '{'):
+                lastScopeName.add(ch)
 
-        result = outThings
-    else:
-        var outTextures = newSeq[Textmap](textures.deDuplicate().len())
-        if textures.len() > 0:
-            for i, j in textures.deDuplicate():
-                new outTextures[i]
 
-                outTextures[i] = Textmap(texture: j.strip(true, true, {'"'}))
+            if ch == '{':
+                scope.inc
+            elif ch == '}':
+                if scope.pred == 0:
+                    for ln in scopeString.split(';'):
+                        if ln.split('=').len > 1:
+                            let getVar =  ln.replace("\n", "")
+                                            .split('=')[0]
+                                            .strip()
+                            let getVal =  ln.replace("\n", "")
+                                            .split('=')[1]
+                                            .strip()
+                                            .replace("\"", "")
 
-        result = outTextures
+                            tmpVars.add(UDMFVar(variable: getVar, value: getVal))
+                    variables.add(UDMFObj(  name: lastScopeName.replace("\c", ""),
+                                            values: tmpVars))
+                    scopeString = ""
+                    lastScopeName = ""
+                    system.reset(tmpVars)
+
+
+                scope.dec
+
+    var tmpSidedefs: seq[Sidedef]
+    var tmpThings: seq[Thing]
+    var tmpSectors: seq[Sector]
+    for v in variables:
+        if v.name == "thing":
+            var tmpObj: Thing
+            for t in v.values:
+                if t.variable == "type":
+                    tmpObj.ednum = cast[uint32](t.value.parseUInt)
+            tmpThings.add(tmpObj)
+        elif v.name == "sidedef":
+            var tmpObj: Sidedef
+            for s in v.values:
+                if s.variable == "texturetop":
+                    tmpObj.texturetop = s.value
+                if s.variable == "texturebottom":
+                    tmpObj.texturebottom = s.value
+                if s.variable == "texturemiddle":
+                    tmpObj.texturemiddle = s.value
+            tmpSidedefs.add(tmpObj)
+        elif v.name == "sector":
+            var tmpObj: Sector
+            for s in v.values:
+                if s.variable == "texturefloor":
+                    tmpObj.texturefloor = s.value
+                if s.variable == "textureceiling":
+                    tmpObj.textureceiling = s.value
+            tmpSectors.add(tmpObj)
+    
+    result.things = tmpThings
+    result.sidedefs = tmpSidedefs
+    result.sectors = tmpSectors
+    
+

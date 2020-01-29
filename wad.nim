@@ -1,179 +1,104 @@
-import strutils
-import sequtils
-import macros
+proc getWadData(fname: string): seq[byte] =
+    var b: byte
+    var buff: seq[byte]
+    var stream = newFileStream(fname, fmRead)
+    if not isNil(stream):
+        while stream.readData(b.addr, 1) != 0:
+            buff.add(b)
+    stream.close()
+    result = buff
+    
 
-type
-    WADHeader = object
-        id: string
-        numLumps: uint32
-        tablesOffset: uint32
+proc getLumps(buffer: seq[byte]): seq[Lump] =
+    let numlumps = bytesToInt(buffer[4..<8])
+    let infotable = bytesToInt(buffer[8..<12])
 
-type
-    Lump = tuple
-        name: string
-        offset: uint32
-        size: uint32
+    var lumps: seq[Lump]
 
-type
-    THINGS = object
-        ednum: uint32
+    for i in countup(0'u32, numlumps - 1):
+        let off = infotable + i * 16
+        var name: string = bytesToString(buffer[off + 8 ..< off + 16])
+        var lumpObj: Lump
+        lumpObj.name = name
+        lumpObj.off = bytesToInt(buffer[off ..< off + 4])
+        lumpObj.size = bytesToInt(buffer[off + 4 ..< off + 8])
 
-    SECTORS = object
-        flatCeiling: string
-        flatFloor: string
-
-    SIDEDEFS = object
-        textureUpper: string
-        textureMiddle: string
-        textureLower: string
-
-
-#gets the WAD header so it can be checked as a valid WAD
-proc getID(wad: seq[char]): string =
-    let id: seq[char] = wad[0..3]
-    var idString: string
-    for c in id: idString.add(c)
-    result = idString
-
-#gets all lumps
-proc getLumps(wad: seq[char]): seq[Lump] =
-    let header = WADHeader( id: getID(wad),
-                            numLumps: getInt(wad[4..7]),
-                            tablesOffset: getInt(wad[8..11]))
-
-    var lumps = newSeq[Lump](header.numLumps)
-
-    for i in 0 ..< header.numLumps:
-        var outString: string
-        let t = header.tablesOffset
-        for c in wad[i * 16 + t + 8 ..< i * 16 + t + 16]:
-            if c != '\x00': outString.add(c)
-        
-        lumps[i].name = outString
-        lumps[i].offset = wad[i * 16 + t ..< i * 16 + t + 4].getInt()
-        lumps[i].size = wad[i * 16 + t + 4 ..< i * 16 + t + 8].getInt() 
+        lumps.add(lumpObj)
 
     result = lumps
 
-proc checkIfMap(lump: Lump): bool =
-    if lump.name.len() >= 4:
-        if lump.name[0..2] == "MAP" and
-        lump.name[3..4].parseInt() is int:
-            result = true
-        elif lump.name[0] == 'E' and
-        lump.name[2] == 'M' and
-        lump.name[1..1].parseInt() is int and
-        lump.name[3..3].parseInt() is int:
-            result = true
-        else:
-            result = false
+proc getMapData(buffer: seq[byte], lumps: seq[Lump]): seq[MapObj] =
+    var isMap: bool = false
+    var outSeq: seq[MapObj]
+    var tempMap: MapObj
+    for l in lumps:
 
-proc getThingsFromMap(  wad: seq[char],
-                        lumps: seq[Lump],
-                        lumpToGet: string): seq[(string, seq[THINGS])] =
-    var outSeq: seq[(string, seq[THINGS])]
-    var isMap: bool
-    var lastMap: string = ""
-    for i in 0 ..< lumps.len():
-        if checkIfMap(lumps[i]):
-            isMap = true
-            lastMap = lumps[i].name
-        
-        if isMap and
-        lumpToGet == "THINGS" and
-        lumps[i].name.toUpper() == "THINGS":
-            var lumpEdnums: THINGS
+        if isMap and l.name.toUpperAscii() == "THINGS":
+            let tLump: seq[byte] = buffer[l.off..<l.off+l.size]
 
-            #10 = doom, 20 = hexen
-            var thingMapType: uint8 = 0
+            # get the things lump type (doom or hexen format)
+            let tType: uint32 = if l.size mod 10 == 0:
+                                    10'u32
+                                elif l.size mod 20 == 0:
+                                    20'u32
+                                else:
+                                    0'u32
 
-        
-            if lumps[i].size.mod(10'u8) == 0'u8:
-                thingMapType = 10
-            elif lumps[i].size.mod(20'u8) == 0'u8:
-                thingMapType = 20
+            # check to see if the things lump is valid or not
+            if tType == 0'u32:
+                echo "THINGS lump invalid"
+                continue
 
-            var returnEdnums = newSeq[THINGS](cast[int](lumps[i].size div 10))
-            for j in 0 ..< lumps[i].size div thingMapType:
-                var getEdnum = newSeq[char](4)
-                
+            # get the ednums
+            for i in countup(0'u32, cast[uint32](tLump.len) div tType):
+                let tNum = Thing(ednum: bytesToInt(buffer[l.off+i*tType+6..<l.off+i*tType+8]))
+                tempMap.things.add(tNum)
 
-                getEdnum[0 ..< 2] = wad[j * thingMapType + lumps[i].offset + 6 ..< j * thingMapType + lumps[i].offset + 8]
-                getEdnum[2 ..< 4] = ['\x00', '\x00']
+        if isMap and l.name.toUpperAscii() == "SIDEDEFS":
 
-                returnEdnums[j] = THINGS(ednum: getEdnum.getInt())
-            outSeq.add((lastMap, returnEdnums.deDuplicate()))
+            if l.size mod 30'u32 != 0:
+                echo "SIDEDEFS lump invalid"
+                continue
 
-        if isMap and
-        lumps[i].name.toUpper() == "BLOCKMAP":
-            isMap = false
-            lastMap = ""
-    result = outSeq
+            for i in countup(0'u32, l.size div 30'u32):
+                let upperTex: string = bytesToString(buffer[l.off+i*30+4..<l.off+i*30+12])
+                let lowerTex: string = bytesToString(buffer[l.off+i*30+12..<l.off+i*30+20])
+                let midTex: string = bytesToString(buffer[l.off+i*30+20..<l.off+i*30+28])
 
-proc getTexturesFromMap(  wad: seq[char],
-                        lumps: seq[Lump],
-                        lumpToGet: string): seq[(string,
-                                            seq[SECTORS],
-                                            seq[SIDEDEFS])] =
-    var outSeq: seq[(string, seq[SECTORS], seq[SIDEDEFS])]
-    var isMap: bool
-    var lastMap: string = ""
-    
-    for i in 0 ..< lumps.len():
-        var flats: seq[SECTORS]
-        var textures: seq[SIDEDEFS]
-        if checkIfMap(lumps[i]):
-            isMap = true
-            lastMap = lumps[i].name
-        
-        if isMap and
-        lumpToGet == "TEXTURES" and
-        lumps[i].name.toUpper() == "SECTORS":
-            var lumpSectors: SECTORS
-            let lumpSize: uint32 = 26
+                let sdef = Sidedef( texturetop: upperTex,
+                                    texturebottom: lowerTex,
+                                    texturemiddle: midTex )
+                tempMap.sidedefs.add(sdef)
 
-            for j in 0 ..< lumps[i].size div lumpSize:
-                let off = lumps[i].offset
-                var floorTexture: string
-                var ceilingTexture: string
-                
-                for c in wad[j * lumpSize + off + 4 ..< j * lumpSize + off + 12]:
-                    if c != '\x00': floorTexture.add(c)
-                for c in wad[j * lumpSize + off + 12 ..< j * lumpSize + off + 20]:
-                    if c != '\x00': ceilingTexture.add(c)
+        if isMap and l.name.toUpperAscii() == "SECTORS":
 
-                flats.add(SECTORS(flatFloor: floorTexture, flatCeiling: ceilingTexture))
-                
-            outSeq.add((lastMap, flats.deDuplicate(), textures.deDuplicate()))
-
-        if isMap and
-        lumpToGet == "TEXTURES" and
-        lumps[i].name.toUpper() == "SIDEDEFS":
-
-            var lumpSidedefs: SIDEDEFS
-            let lumpSize: uint32 = 30
-
-            for j in 0 ..< lumps[i].size div lumpSize:
-                let off = lumps[i].offset
-                var upperTexture: string
-                var middleTexture: string
-                var lowerTexture: string
-                
-                for c in wad[j * lumpSize + off + 4 ..< j * lumpSize + off + 12]:
-                    if c != '\x00': upperTexture.add(c)
-                for c in wad[j * lumpSize + off + 12 ..< j * lumpSize + off + 20]:
-                    if c != '\x00': lowerTexture.add(c)
-                for c in wad[j * lumpSize + off + 20 ..< j * lumpSize + off + 28]:
-                    if c != '\x00': middleTexture.add(c)
-
-                textures.add(SIDEDEFS(textureUpper: upperTexture, textureLower: lowerTexture, textureMiddle: middleTexture))
-    
-    
-            outSeq.add((lastMap, flats.deDuplicate(), textures.deDuplicate()))
-        if isMap and
-        lumps[i].name.toUpper() == "BLOCKMAP":
+            if l.size mod 26'u32 != 0:
+                echo "SECTORS lump invalid"
+                continue
             
-            isMap = false
-            lastMap = ""
+            for i in countup(0'u32, l.size div 26'u32):
+                let floorTex: string = bytesToString(buffer[l.off+i*26+4..<l.off+i*26+12])
+                let ceilTex: string = bytesToString(buffer[l.off+i*26+12..<l.off+i*26+20])
+
+                let sec = Sector(   texturefloor: floorTex,
+                                    textureceiling: ceilTex )
+                
+                tempMap.sectors.add(sec)
+
+        if isMap and l.name.toUpperAscii() == "TEXTMAP":
+            for x in buffer.parseUDMF(l).things:
+                tempMap.things.add(x)
+            for x in buffer.parseUDMF(l).sidedefs:
+                tempMap.sidedefs.add(x)
+            for x in buffer.parseUDMF(l).sectors:
+                tempMap.sectors.add(x)
+
+        if re.match(l.name, re"MAP\d\d") or re.match(l.name, re"E\dM\d"):
+            isMap = true
+            tempMap.mapname = l.name
         
+        if isMap and (l.name.toUpperAscii() == "BLOCKMAP" or l.name.toUpperAscii() == "ENDMAP"):
+            isMap = false
+            outSeq.add(tempMap)
+            system.reset(tempMap)
     result = outSeq
